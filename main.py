@@ -89,7 +89,13 @@ class ErrorScenarioApp:
             "Выбрать звук": "Select Sound",
             "Скрывать программу при выполнении сценария?": "Hide program when running scenarios?",
             "Изменить на Русский": "Switch to English",
-            "Switch to English": "Изменить на Русский"
+            "Switch to English": "Изменить на Русский",
+            "Настройки сценария": "Scenario Settings",
+            "Задержка (мс):": "Delay (ms):",
+            "Сохранить": "Save",
+            "Удалить сценарий": "Delete Scenario",
+            "Удалить сценарий?": "Delete scenario?",
+            "Вы уверены, что хотите удалить этот сценарий?": "Are you sure you want to delete this scenario?",
         }
         if self.language == "English":
             return translations.get(text, text)
@@ -135,13 +141,44 @@ class ErrorScenarioApp:
         selected_index = self.listbox_scenarios.curselection()
         if selected_index:
             self.selected_scenario_index = selected_index[0]
+            scenario = self.scenarios[self.selected_scenario_index]
+            self.open_scenario_settings(scenario)
+
+    def open_scenario_settings(self, scenario):
+        settings_window = tk.Toplevel(self.root)
+        settings_window.title(self.translate("Настройки сценария"))
+
+        ttk.Label(settings_window, text=self.translate("Задержка (мс):")).pack(pady=5)
+        delay_entry = ttk.Entry(settings_window, width=20)
+        delay_entry.insert(0, scenario["delay"])
+        delay_entry.pack(pady=5)
+
+        def save_settings():
+            try:
+                delay = int(delay_entry.get())
+                if delay < 0:
+                    raise ValueError
+                self.scenarios[self.selected_scenario_index]["delay"] = delay
+                settings_window.destroy()
+            except ValueError:
+                messagebox.showerror(self.translate("Ошибка"), self.translate("Введите корректное число."))
+
+        ttk.Button(settings_window, text=self.translate("Сохранить"), command=save_settings).pack(pady=10)
+
+        def delete_scenario():
+            if messagebox.askyesno(self.translate("Удалить сценарий?"), self.translate("Вы уверены, что хотите удалить этот сценарий?")):
+                del self.scenarios[self.selected_scenario_index]
+                self.update_scenarios_list()
+                settings_window.destroy()
+
+        ttk.Button(settings_window, text=self.translate("Удалить сценарий"), command=delete_scenario).pack(pady=5)
 
     def run_scenarios(self):
         if self.use_custom_sound.get() and not self.audio_file:
             messagebox.showerror(self.translate("Ошибка"), self.translate("Вы не выбрали звук."))
             return
 
-        if self.audio_file and self.use_custom_sound.get():
+        if self.audio_file and self.use_custom_sound.get() and not self.is_music_playing:
             self.play_music()
 
         if self.hide_program.get():
