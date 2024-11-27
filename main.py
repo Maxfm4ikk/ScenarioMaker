@@ -1,177 +1,185 @@
 import tkinter as tk
-from tkinter import messagebox, filedialog
+from tkinter import ttk, filedialog, messagebox
 import time
 import pygame
-import threading
+import os
+
 
 class ErrorScenarioApp:
-    def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("Error Scenario App")
-        self.root.geometry("800x600")
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Error Scenario")
 
-        self.scenarios = []
-        self.language = "Русский"
-        self.hide_during_scenarios = tk.BooleanVar(value=False)
-        self.use_sound = tk.BooleanVar(value=False)
-        self.selected_sound = None
+        self.language = "Русский"  # Начальный язык
+        self.scenarios = []  # Список сценариев
+        self.selected_scenario_index = None  # Индекс выбранного сценария
+        self.audio_file = None  # Пользовательский MP3-файл
+        self.is_music_playing = False  # Флаг для отслеживания, воспроизводится ли музыка
+        self.use_custom_sound = tk.BooleanVar(value=False)  # Галочка для использования музыки
+        self.hide_program = tk.BooleanVar(value=False)  # Галочка для скрытия программы
 
         self.init_ui()
+        pygame.mixer.init()
 
     def init_ui(self):
-        self.language_button = tk.Button(self.root, text="Изменить на English", command=self.toggle_language)
-        self.language_button.pack(pady=10)
+        # Удаление всех старых виджетов
+        for widget in self.root.winfo_children():
+            widget.destroy()
 
-        self.hide_checkbox = tk.Checkbutton(
-            self.root,
-            text="Закрывать программу при запуске сценария?",
-            variable=self.hide_during_scenarios
-        )
-        self.hide_checkbox.pack()
+        # Основные элементы интерфейса
+        self.frame_main = ttk.Frame(self.root, padding=10)
+        self.frame_main.pack(fill=tk.BOTH, expand=True)
 
-        self.sound_checkbox = tk.Checkbutton(
-            self.root,
-            text="Использовать пользовательский звук?",
-            variable=self.use_sound,
-            command=self.toggle_sound
-        )
-        self.sound_checkbox.pack()
+        # Поля для настроек ошибки
+        ttk.Label(self.frame_main, text=self.translate("Заголовок:")).grid(row=0, column=0, sticky=tk.W)
+        self.entry_title = ttk.Entry(self.frame_main, width=40)
+        self.entry_title.grid(row=0, column=1, sticky=tk.W)
 
-        self.select_sound_button = tk.Button(self.root, text="Выбрать звук", command=self.select_sound)
-        self.select_sound_button.pack()
-        self.select_sound_button.config(state="disabled")
+        ttk.Label(self.frame_main, text=self.translate("Текст сообщения:")).grid(row=1, column=0, sticky=tk.W)
+        self.entry_message = ttk.Entry(self.frame_main, width=40)
+        self.entry_message.grid(row=1, column=1, sticky=tk.W)
 
-        self.run_button = tk.Button(self.root, text="Запустить сценарии", command=self.run_scenarios)
-        self.run_button.pack(pady=20)
+        ttk.Label(self.frame_main, text=self.translate("Тип иконки (info, warning, error):")).grid(row=2, column=0, sticky=tk.W)
+        self.entry_icon = ttk.Entry(self.frame_main, width=40)
+        self.entry_icon.grid(row=2, column=1, sticky=tk.W)
 
-        self.scenario_listbox = tk.Listbox(self.root)
-        self.scenario_listbox.pack(fill="both", expand=True, padx=10, pady=10)
+        ttk.Label(self.frame_main, text=self.translate("Тип кнопок (ok, okcancel, yesno):")).grid(row=3, column=0, sticky=tk.W)
+        self.entry_buttons = ttk.Entry(self.frame_main, width=40)
+        self.entry_buttons.grid(row=3, column=1, sticky=tk.W)
 
-        self.add_scenario_button = tk.Button(self.root, text="Добавить сценарий", command=self.add_scenario)
-        self.add_scenario_button.pack(pady=5)
+        # Список сценариев
+        self.listbox_scenarios = tk.Listbox(self.frame_main, height=10)
+        self.listbox_scenarios.grid(row=4, column=0, columnspan=2, sticky=tk.W + tk.E, pady=5)
+        self.listbox_scenarios.bind('<<ListboxSelect>>', self.select_scenario)
 
-        self.delete_scenario_button = tk.Button(self.root, text="Удалить выбранный сценарий", command=self.delete_scenario)
-        self.delete_scenario_button.pack()
+        # Кнопки управления
+        self.button_add = ttk.Button(self.frame_main, text=self.translate("Добавить сценарий"), command=self.add_scenario)
+        self.button_add.grid(row=5, column=0, sticky=tk.W)
 
-    def toggle_language(self):
-        if self.language == "Русский":
-            self.language = "English"
-            self.language_button.config(text="Switch to Russian")
-            self.hide_checkbox.config(text="Hide program when running scenarios?")
-            self.sound_checkbox.config(text="Use custom sound?")
-            self.select_sound_button.config(text="Select Sound")
-            self.run_button.config(text="Run Scenarios")
-            self.add_scenario_button.config(text="Add Scenario")
-            self.delete_scenario_button.config(text="Delete Selected Scenario")
+        self.button_run = ttk.Button(self.frame_main, text=self.translate("Запустить сценарии"), command=self.run_scenarios)
+        self.button_run.grid(row=5, column=1, sticky=tk.E)
+
+        # Настройки программы
+        self.check_hide = ttk.Checkbutton(self.frame_main, text=self.translate("Скрывать программу при выполнении сценария?"), variable=self.hide_program)
+        self.check_hide.grid(row=6, column=0, columnspan=2, sticky=tk.W)
+
+        # Настройки аудио
+        self.check_sound = ttk.Checkbutton(self.frame_main, text=self.translate("Использовать пользовательский звук?"), variable=self.use_custom_sound, command=self.toggle_audio_file)
+        self.check_sound.grid(row=7, column=0, columnspan=2, sticky=tk.W)
+
+        self.button_select_audio = ttk.Button(self.frame_main, text=self.translate("Выбрать звук"), command=self.select_audio_file, state=tk.DISABLED)
+        self.button_select_audio.grid(row=8, column=0, columnspan=2, sticky=tk.W)
+
+        # Переключение языка
+        self.button_language = ttk.Button(self.frame_main, text=self.translate("Изменить на Русский"), command=self.switch_language)
+        self.button_language.grid(row=9, column=0, columnspan=2)
+
+        # Отображение сохранённых сценариев
+        self.update_scenarios_list()
+
+    def translate(self, text):
+        translations = {
+            "Заголовок:": "Title:",
+            "Текст сообщения:": "Message text:",
+            "Тип иконки (info, warning, error):": "Icon type (info, warning, error):",
+            "Тип кнопок (ok, okcancel, yesno):": "Button type (ok, okcancel, yesno):",
+            "Добавить сценарий": "Add Scenario",
+            "Запустить сценарии": "Run Scenarios",
+            "Использовать пользовательский звук?": "Use custom sound?",
+            "Выбрать звук": "Select Sound",
+            "Скрывать программу при выполнении сценария?": "Hide program when running scenarios?",
+            "Изменить на Русский": "Switch to English",
+            "Switch to English": "Изменить на Русский"
+        }
+        if self.language == "English":
+            return translations.get(text, text)
         else:
-            self.language = "Русский"
-            self.language_button.config(text="Изменить на English")
-            self.hide_checkbox.config(text="Закрывать программу при запуске сценария?")
-            self.sound_checkbox.config(text="Использовать пользовательский звук?")
-            self.select_sound_button.config(text="Выбрать звук")
-            self.run_button.config(text="Запустить сценарии")
-            self.add_scenario_button.config(text="Добавить сценарий")
-            self.delete_scenario_button.config(text="Удалить выбранный сценарий")
+            reverse_translations = {v: k for k, v in translations.items()}
+            return reverse_translations.get(text, text)
 
-    def toggle_sound(self):
-        if self.use_sound.get():
-            self.select_sound_button.config(state="normal")
+    def switch_language(self):
+        self.language = "English" if self.language == "Русский" else "Русский"
+        self.init_ui()
+
+    def toggle_audio_file(self):
+        if self.use_custom_sound.get():
+            self.button_select_audio.config(state=tk.NORMAL)
         else:
-            self.select_sound_button.config(state="disabled")
-            self.selected_sound = None
+            self.button_select_audio.config(state=tk.DISABLED)
+            self.stop_music()  # Останавливаем музыку при отключении галочки
 
-    def select_sound(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Audio Files", "*.mp3")])
-        if file_path:
-            self.selected_sound = file_path
-
-    def play_sound(self):
-        if self.selected_sound and self.use_sound.get():
-            pygame.mixer.init()
-            pygame.mixer.music.load(self.selected_sound)
-            pygame.mixer.music.play()
-
-    def stop_sound(self):
-        if pygame.mixer.get_init():
-            pygame.mixer.music.stop()
-            pygame.mixer.quit()
-
-    def run_scenarios(self):
-        if not self.scenarios:
-            messagebox.showinfo("Информация", "Нет доступных сценариев для выполнения.")
-            return
-
-        if self.hide_during_scenarios.get():
-            self.root.withdraw()
-
-        if self.selected_sound and self.use_sound.get():
-            self.play_sound()
-
-        def execute_scenarios():
-            for scenario in self.scenarios:
-                title, message, icon, buttons, delay = scenario
-                time.sleep(delay / 1000)  # delay in milliseconds
-                result = messagebox.showinfo(title, message) if icon == "info" else (
-                    messagebox.showwarning(title, message) if icon == "warning" else messagebox.showerror(title, message)
-                )
-                # Handle button responses (e.g., yes/no) if necessary
-            self.on_scenarios_complete()
-
-        threading.Thread(target=execute_scenarios, daemon=True).start()
-
-    def on_scenarios_complete(self):
-        self.stop_sound()
-        if self.hide_during_scenarios.get():
-            self.root.deiconify()
+    def select_audio_file(self):
+        self.audio_file = filedialog.askopenfilename(filetypes=[("MP3 files", "*.mp3")])
+        if self.audio_file:
+            messagebox.showinfo(self.translate("Выбор звука"), self.translate("Файл выбран: ") + os.path.basename(self.audio_file))
 
     def add_scenario(self):
-        def save_scenario():
-            title = title_entry.get()
-            message = message_entry.get()
-            icon = icon_var.get()
-            buttons = buttons_var.get()
-            try:
-                delay = int(delay_entry.get())
-            except ValueError:
-                delay = 1000  # Default delay
-            self.scenarios.append((title, message, icon, buttons, delay))
-            self.scenario_listbox.insert(tk.END, title)
-            add_window.destroy()
+        title = self.entry_title.get()
+        message = self.entry_message.get()
+        icon = self.entry_icon.get()
+        buttons = self.entry_buttons.get()
 
-        add_window = tk.Toplevel(self.root)
-        add_window.title("Добавить сценарий")
-        tk.Label(add_window, text="Заголовок:").pack()
-        title_entry = tk.Entry(add_window)
-        title_entry.pack()
+        if not title or not message or icon not in ["info", "warning", "error"] or buttons not in ["ok", "okcancel", "yesno"]:
+            messagebox.showerror(self.translate("Ошибка"), self.translate("Проверьте введённые данные."))
+            return
 
-        tk.Label(add_window, text="Сообщение:").pack()
-        message_entry = tk.Entry(add_window)
-        message_entry.pack()
+        self.scenarios.append({"title": title, "message": message, "icon": icon, "buttons": buttons, "delay": 1000})
+        self.update_scenarios_list()
 
-        tk.Label(add_window, text="Иконка:").pack()
-        icon_var = tk.StringVar(value="info")
-        tk.OptionMenu(add_window, icon_var, "info", "warning", "error").pack()
+    def update_scenarios_list(self):
+        self.listbox_scenarios.delete(0, tk.END)
+        for scenario in self.scenarios:
+            self.listbox_scenarios.insert(tk.END, f"{scenario['title']} - {scenario['message']}")
 
-        tk.Label(add_window, text="Кнопки:").pack()
-        buttons_var = tk.StringVar(value="ok")
-        tk.OptionMenu(add_window, buttons_var, "ok", "okcancel", "yesno").pack()
-
-        tk.Label(add_window, text="Задержка (мс):").pack()
-        delay_entry = tk.Entry(add_window)
-        delay_entry.pack()
-
-        tk.Button(add_window, text="Сохранить", command=save_scenario).pack()
-
-    def delete_scenario(self):
-        selected_index = self.scenario_listbox.curselection()
+    def select_scenario(self, event):
+        selected_index = self.listbox_scenarios.curselection()
         if selected_index:
-            index = selected_index[0]
-            del self.scenarios[index]
-            self.scenario_listbox.delete(index)
+            self.selected_scenario_index = selected_index[0]
 
-    def run(self):
-        self.root.mainloop()
+    def run_scenarios(self):
+        if self.use_custom_sound.get() and not self.audio_file:
+            messagebox.showerror(self.translate("Ошибка"), self.translate("Вы не выбрали звук."))
+            return
+
+        if self.audio_file and self.use_custom_sound.get():
+            self.play_music()
+
+        if self.hide_program.get():
+            self.root.withdraw()
+
+        self.show_next_error(0)
+
+    def play_music(self):
+        if self.audio_file:
+            pygame.mixer.music.load(self.audio_file)
+            pygame.mixer.music.play(loops=-1, start=0.0)
+            self.is_music_playing = True
+
+    def stop_music(self):
+        if self.is_music_playing:
+            pygame.mixer.music.stop()
+            self.is_music_playing = False
+
+    def show_next_error(self, index):
+        if index < len(self.scenarios):
+            scenario = self.scenarios[index]
+
+            if scenario["buttons"] == "ok":
+                messagebox.showinfo(scenario["title"], scenario["message"], icon=scenario["icon"])
+            elif scenario["buttons"] == "okcancel":
+                messagebox.askokcancel(scenario["title"], scenario["message"], icon=scenario["icon"])
+            elif scenario["buttons"] == "yesno":
+                messagebox.askyesno(scenario["title"], scenario["message"], icon=scenario["icon"])
+
+            time.sleep(scenario["delay"] / 1000)  # Задержка в миллисекундах
+            self.show_next_error(index + 1)
+        else:
+            if self.is_music_playing:
+                self.stop_music()
+            if self.hide_program.get():
+                self.root.deiconify()
 
 
-app = ErrorScenarioApp()
-app.run()
+root = tk.Tk()
+app = ErrorScenarioApp(root)
+root.mainloop()
